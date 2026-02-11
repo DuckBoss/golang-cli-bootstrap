@@ -1,0 +1,10 @@
+# Logrotate config for appname (default log: /var/log/appname.log)
+/var/log/appname.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

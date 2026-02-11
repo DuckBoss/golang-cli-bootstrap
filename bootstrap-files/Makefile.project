@@ -1,0 +1,71 @@
+# Binary name and module path
+BINARY_NAME  := appname
+MAIN_PATH    := ./cmd/appname
+
+# Install location (override with: make install PREFIX=/opt/local)
+PREFIX  ?= /usr/local
+BINDIR  ?= $(PREFIX)/bin
+DESTDIR ?=
+
+INSTALL_PATH     := $(DESTDIR)$(BINDIR)
+LOGROTATE_DIR    := $(DESTDIR)/etc/logrotate.d
+LOGROTATE_SOURCE := data/logrotate.d/$(BINARY_NAME)
+
+# Default log file path (override with: make run LOG_PATH=/path/to/log)
+LOG_PATH ?= /var/log/$(BINARY_NAME).log
+
+# Version from cmd/appname/constants.go
+VERSION := $(shell grep 'Version = ' $(MAIN_PATH)/constants.go | sed 's/.*"\([^"]*\)".*/\1/')
+
+# Go build (ARCH_SUFFIX = x86, x86_64, arm64, etc.)
+GO     := go
+GOARCH := $(shell $(GO) env GOARCH)
+# Map Go arch to familiar names: 386 -> x86, amd64 -> x86_64
+ARCH_SUFFIX := $(shell echo $(GOARCH) | sed -e 's/^386$$/x86/' -e 's/^amd64$$/x86_64/')
+GOFLAGS     :=
+# Inject version into binary at link time (-X main.Version=...)
+LDFLAGS     := -X main.Version=$(VERSION)
+
+# DEV BUILD FLAGS
+DEV_BUILD_DIR := ./builds/dev
+# Dev build: default log path under /tmp/<appname>
+DEV_LOG_PATH := /tmp/$(BINARY_NAME)/$(BINARY_NAME).log
+LDFLAGS_DEV  := $(LDFLAGS) -X main.DefaultLogPath=$(DEV_LOG_PATH)
+
+# Full binary name including version and arch
+BINARY_OUTPUT := $(BINARY_NAME)-$(VERSION)-$(ARCH_SUFFIX)
+BINARY_DEV    := $(BINARY_NAME)-$(VERSION)-dev-$(ARCH_SUFFIX)
+
+.PHONY: all build build-dev run install uninstall clean test
+
+all: build
+
+run: build-dev
+	$(DEV_BUILD_DIR)/$(BINARY_DEV) $(ARGS)
+
+build-dev:
+	echo "Building development version..."
+	mkdir -p $(DEV_BUILD_DIR)
+	$(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS_DEV)' -o $(DEV_BUILD_DIR)/$(BINARY_DEV) -tags dev $(MAIN_PATH)
+
+build:
+	$(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BINARY_OUTPUT) $(MAIN_PATH)
+
+install: build
+	install -d $(INSTALL_PATH)
+	install -m 755 $(BINARY_OUTPUT) $(INSTALL_PATH)/$(BINARY_NAME)
+	install -d $(LOGROTATE_DIR)
+	install -m 644 $(LOGROTATE_SOURCE) $(LOGROTATE_DIR)/$(BINARY_NAME)
+
+uninstall:
+	rm -f $(INSTALL_PATH)/$(BINARY_NAME)
+	rm -f $(LOGROTATE_DIR)/$(BINARY_NAME)
+
+clean:
+	rm -f $(BINARY_OUTPUT)
+	rm -f $(DEV_BUILD_DIR)/$(BINARY_DEV)
+	rm -f $(DEV_LOG_PATH)
+	-rmdir /tmp/$(BINARY_NAME) 2>/dev/null || true
+
+test:
+	$(GO) test ./...
